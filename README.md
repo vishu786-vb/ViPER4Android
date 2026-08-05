@@ -1,4 +1,4 @@
-# ViPER4Android
+# ViPER4Android Rootless
 
 Material Design 3 UI for ViPER4Android FX. Full feature set of the ViPER4Android DSP engine with a modern interface.
 

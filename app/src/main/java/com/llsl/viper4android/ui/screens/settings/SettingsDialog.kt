@@ -27,6 +27,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.llsl.viper4android.R
 import com.llsl.viper4android.ui.screens.main.DriverStatus
+import com.llsl.viper4android.utils.ShizukuShell
 
 @Composable
 fun SettingsDialog(
@@ -150,6 +151,25 @@ fun SettingsDialog(
                         Canvas(modifier = Modifier.size(6.dp)) {
                             drawCircle(Color(0xFF4CAF50))
                         }
+                    }
+                }
+                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                // Shizuku status indicator
+                val shizukuAvailable = ShizukuShell.isAvailable()
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = stringResource(R.string.settings_shizuku_status),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Canvas(modifier = Modifier.size(6.dp)) {
+                        drawCircle(if (shizukuAvailable) Color(0xFF4CAF50) else Color(0xFFEF5350))
                     }
                 }
                 HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))

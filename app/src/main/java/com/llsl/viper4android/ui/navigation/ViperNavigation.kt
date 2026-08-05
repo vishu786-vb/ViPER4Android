@@ -7,7 +7,10 @@ import androidx.navigation.compose.rememberNavController
 import com.llsl.viper4android.ui.screens.main.MainScreen
 
 @Composable
-fun ViperNavigation() {
+fun ViperNavigation(
+    onStartCapture: () -> Unit = {},
+    onStopCapture: () -> Unit = {},
+) {
     val navController = rememberNavController()
 
     NavHost(
@@ -15,7 +18,10 @@ fun ViperNavigation() {
         startDestination = "main",
     ) {
         composable("main") {
-            MainScreen()
+            MainScreen(
+                onStartCapture = onStartCapture,
+                onStopCapture  = onStopCapture,
+            )
         }
     }
 }

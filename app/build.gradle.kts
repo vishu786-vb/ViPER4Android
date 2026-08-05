@@ -31,11 +31,28 @@ android {
     }
 
     signingConfigs {
-        create("release") {
-            storeFile = file(localProps.getProperty("KEYSTORE_FILE", ""))
-            storePassword = localProps.getProperty("KEYSTORE_PASSWORD", "")
-            keyAlias = localProps.getProperty("KEY_ALIAS", "")
-            keyPassword = localProps.getProperty("KEY_PASSWORD", "")
+        // Debug keystore — always present in every Android SDK installation.
+        // Used as a fallback for release builds when no production keystore is set.
+        val debugKeystorePath = "${System.getProperty("user.home")}/.android/debug.keystore"
+
+        val keystoreFile = localProps.getProperty("KEYSTORE_FILE", "")
+        if (keystoreFile.isNotEmpty()) {
+            // Production keystore provided via local.properties
+            create("release") {
+                storeFile = file(keystoreFile)
+                storePassword = localProps.getProperty("KEYSTORE_PASSWORD", "")
+                keyAlias = localProps.getProperty("KEY_ALIAS", "")
+                keyPassword = localProps.getProperty("KEY_PASSWORD", "")
+            }
+        } else {
+            // No production keystore — sign with the debug keystore so the APK
+            // is always installable (both sideload and adb install work fine).
+            create("release") {
+                storeFile = file(debugKeystorePath)
+                storePassword = "android"
+                keyAlias = "androiddebugkey"
+                keyPassword = "android"
+            }
         }
     }
 
@@ -64,6 +81,22 @@ android {
 
     buildFeatures {
         compose = true
+    }
+
+    defaultConfig {
+        // NDK/CMake for ViPERCapture JNI bridge
+        externalNativeBuild {
+            cmake {
+                arguments("-DANDROID_STL=c++_shared")
+                abiFilters += setOf("arm64-v8a", "armeabi-v7a", "x86_64")
+            }
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+        }
     }
 }
 
@@ -101,4 +134,7 @@ dependencies {
     implementation(libs.datastore.preferences)
 
     implementation(libs.coroutines.android)
+
+    implementation(libs.shizuku.api)
+    implementation(libs.shizuku.provider)
 }

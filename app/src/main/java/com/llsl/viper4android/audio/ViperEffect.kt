@@ -8,7 +8,7 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.UUID
 
-class ViperEffect(
+open class ViperEffect(
     private val audioSessionId: Int,
     private val typeUuid: UUID = EFFECT_TYPE_UUID,
 ) {
@@ -88,13 +88,13 @@ class ViperEffect(
         effect = null
     }
 
-    var enabled: Boolean
+    open var enabled: Boolean
         get() = effect?.enabled ?: false
         set(value) {
             effect?.enabled = value
         }
 
-    fun setParameter(
+    open fun setParameter(
         param: Int,
         value: Int,
     ) {
@@ -112,7 +112,7 @@ class ViperEffect(
         }
     }
 
-    fun setParameter(
+    open fun setParameter(
         param: Int,
         val1: Int,
         val2: Int,
@@ -137,7 +137,7 @@ class ViperEffect(
         }
     }
 
-    fun setParameter(
+    open fun setParameter(
         param: Int,
         val1: Int,
         val2: Int,
@@ -164,7 +164,7 @@ class ViperEffect(
         }
     }
 
-    fun setParameter(
+    open fun setParameter(
         param: Int,
         value: ByteArray,
     ) {

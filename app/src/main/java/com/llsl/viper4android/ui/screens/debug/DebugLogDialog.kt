@@ -41,7 +41,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.llsl.viper4android.R
 import com.llsl.viper4android.utils.FileLogger
-import com.llsl.viper4android.utils.RootShell
+import com.llsl.viper4android.utils.ShizukuShell
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -179,10 +179,17 @@ fun DebugLogDialog(
         }
 
         withContext(Dispatchers.IO) {
-            if (!RootShell.isRootAvailable()) {
-                allLines.add(DRIVER_PREFIX + "logcat unavailable (root required)")
+            if (!ShizukuShell.isAvailable()) {
+                allLines.add(DRIVER_PREFIX + "logcat unavailable (Shizuku required)")
                 return@withContext
             }
+            // Grant READ_LOGS to ourselves via Shizuku so logcat works without root.
+            // This is idempotent — safe to call every time the dialog opens.
+            try {
+                val pkg = "com.llsl.viper4android"
+                ShizukuShell.exec("pm grant $pkg android.permission.READ_LOGS 2>/dev/null || true")
+            } catch (_: Exception) { /* best-effort */ }
+
             var proc: Process? = null
             try {
                 val tsArg =
@@ -192,10 +199,8 @@ fun DebugLogDialog(
                     } else {
                         ""
                     }
-                proc =
-                    ProcessBuilder(RootShell.getSuPath())
-                        .redirectErrorStream(true)
-                        .start()
+                // Start a long-lived shell session via Shizuku and feed logcat to it.
+                proc = ShizukuShell.startShell()
                 proc.outputStream.bufferedWriter().let { writer ->
                     writer.write("logcat -s ViPER4Android:* -v time$tsArg\n")
                     writer.flush()

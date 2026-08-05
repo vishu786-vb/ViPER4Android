@@ -29,7 +29,7 @@ object EffectDispatcher {
         return (value * 100.0).roundToInt().coerceIn(0, 200)
     }
 
-    fun vseExciterToRaw(value: Int): Int = (value * 5.6).toInt()
+    fun vseExciterToRaw(value: Int): Int = value
 
     fun fieldSurroundMidImageToRaw(value: Int): Int = value * 10 + 100
 

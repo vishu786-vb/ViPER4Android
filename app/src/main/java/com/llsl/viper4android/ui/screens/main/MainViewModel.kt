@@ -29,7 +29,7 @@ import com.llsl.viper4android.data.repository.ViperRepository
 import com.llsl.viper4android.migrate.V2Export
 import com.llsl.viper4android.service.ViperService
 import com.llsl.viper4android.utils.FileLogger
-import com.llsl.viper4android.utils.RootShell
+import com.llsl.viper4android.utils.ShizukuShell
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -473,7 +473,7 @@ class MainViewModel
                 val safeName = fileName.replace("'", "")
                 val subDir = if (activeDeviceType == ViperParams.FX_TYPE_SPEAKER) "spk" else "hp"
                 val kernelPath = "/data/local/tmp/v4a/$subDir/$safeName"
-                RootShell.copyFile(file, kernelPath)
+                ShizukuShell.copyFile(file, kernelPath)
                 FileLogger.i("ViewModel", "Kernel copied to $kernelPath (for full state)")
                 val param =
                     if (activeDeviceType == ViperParams.FX_TYPE_SPEAKER) {
@@ -4705,6 +4705,13 @@ class MainViewModel
 
                 val kernelId = fileName.hashCode()
                 service.dispatchParam(commitParam, totalFloats, crcValue, kernelId)
+
+                // Explicitly enable the convolver after the kernel is committed.
+                // The AIDL driver enables itself internally, but the capture engine
+                // needs an explicit enable dispatch.
+                if (enableParam != null) {
+                    service.dispatchParam(enableParam, 1)
+                }
                 true
             } catch (e: Exception) {
                 FileLogger.e("ViewModel", "Failed to load kernel: $fileName", e)
@@ -4721,7 +4728,7 @@ class MainViewModel
                 val safeName = fileName.replace("'", "")
                 val subDir = if (activeDeviceType == ViperParams.FX_TYPE_SPEAKER) "spk" else "hp"
                 val kernelPath = "/data/local/tmp/v4a/$subDir/$safeName"
-                RootShell.copyFile(file, kernelPath)
+                ShizukuShell.copyFile(file, kernelPath)
                 FileLogger.i("ViewModel", "Kernel copied to $kernelPath")
 
                 val param =

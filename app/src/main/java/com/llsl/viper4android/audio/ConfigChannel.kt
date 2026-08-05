@@ -1,7 +1,7 @@
 package com.llsl.viper4android.audio
 
 import com.llsl.viper4android.utils.FileLogger
-import com.llsl.viper4android.utils.RootShell
+import com.llsl.viper4android.utils.ShizukuShell
 import java.io.File
 import java.io.RandomAccessFile
 import java.nio.ByteBuffer
@@ -77,31 +77,77 @@ object ConfigChannel {
         synchronized(writeLock) {
             if (initDone.get() && statusBuffer != null) return
             try {
+                // Step 1 — try direct mmap (files may already exist world-writable)
                 if (mapShm()) {
-                    FileLogger.i("ConfigChannel", "Direct mmap succeeded")
+                    FileLogger.i("ConfigChannel", "Direct mmap succeeded (files pre-existing)")
                     initDone.set(true)
                     return
                 }
-                FileLogger.w("ConfigChannel", "Direct mmap failed, trying su fallback")
-                createShmViaSu()
-                mapShm()
-                initDone.set(true)
+
+                // Step 2 — create files via Shizuku shell (shell uid=2000 can write /data/local/tmp)
+                if (ShizukuShell.isAvailable()) {
+                    FileLogger.i("ConfigChannel", "Creating SHM files via Shizuku")
+                    createShmViaShizuku()
+
+                    // Step 3 — retry mmap (covers 99% of devices)
+                    if (mapShm()) {
+                        FileLogger.i("ConfigChannel", "mmap succeeded after Shizuku create")
+                        initDone.set(true)
+                        return
+                    }
+
+                    // Step 4 — SELinux is blocking mmap; try chcon to shell_data_file
+                    FileLogger.w("ConfigChannel", "mmap still failed — trying chcon shell_data_file")
+                    relabelShmViaShizuku()
+                    if (mapShm()) {
+                        FileLogger.i("ConfigChannel", "mmap succeeded after chcon")
+                        initDone.set(true)
+                        return
+                    }
+
+                    FileLogger.e("ConfigChannel", "All Shizuku SHM strategies failed")
+                } else {
+                    FileLogger.e("ConfigChannel", "Shizuku not available — cannot create SHM files")
+                }
+
+                // initDone is intentionally NOT set to true here so the next call retries
             } catch (e: Exception) {
                 FileLogger.e("ConfigChannel", "Init failed", e)
             }
         }
     }
 
-    private fun createShmViaSu() {
-        RootShell.exec(
+    /** Create the three SHM files via Shizuku shell. No chcon — rely on default shell_data_file label. */
+    private fun createShmViaShizuku() {
+        ShizukuShell.exec(
             "mkdir -p /data/local/tmp/v4a/hp /data/local/tmp/v4a/spk && " +
-                "[ ! -f $SHM_STATUS_PATH ] && dd if=/dev/zero of=$SHM_STATUS_PATH bs=$STATUS_SHM_SIZE count=1 2>/dev/null; " +
-                "[ ! -f $SHM_HP_PATH ] && dd if=/dev/zero of=$SHM_HP_PATH bs=$PARAM_SHM_SIZE count=1 2>/dev/null; " +
-                "[ ! -f $SHM_SPK_PATH ] && dd if=/dev/zero of=$SHM_SPK_PATH bs=$PARAM_SHM_SIZE count=1 2>/dev/null; " +
-                "chmod 666 $SHM_STATUS_PATH $SHM_HP_PATH $SHM_SPK_PATH; " +
-                "chcon u:object_r:shell_data_file:s0 $SHM_STATUS_PATH $SHM_HP_PATH $SHM_SPK_PATH 2>/dev/null; " +
-                "echo ok",
+                "[ ! -f $SHM_STATUS_PATH ] && " +
+                "dd if=/dev/zero of=$SHM_STATUS_PATH bs=$STATUS_SHM_SIZE count=1 2>/dev/null; " +
+                "[ ! -f $SHM_HP_PATH ] && " +
+                "dd if=/dev/zero of=$SHM_HP_PATH bs=$PARAM_SHM_SIZE count=1 2>/dev/null; " +
+                "[ ! -f $SHM_SPK_PATH ] && " +
+                "dd if=/dev/zero of=$SHM_SPK_PATH bs=$PARAM_SHM_SIZE count=1 2>/dev/null; " +
+                "chmod 666 $SHM_STATUS_PATH $SHM_HP_PATH $SHM_SPK_PATH"
+            // Deliberately omitting chcon here — the files get shell_data_file by default,
+            // which the driver domain can access on stock and most custom ROMs.
         )
+    }
+
+    /**
+     * SELinux fallback: relabel SHM files to shell_data_file explicitly.
+     * shell (uid=2000) always has relabelfrom/relabelto rights on its own files
+     * under /data/local/tmp for this type.
+     */
+    private fun relabelShmViaShizuku() {
+        val result = ShizukuShell.execAndRead(
+            "chcon u:object_r:shell_data_file:s0 " +
+                "$SHM_STATUS_PATH $SHM_HP_PATH $SHM_SPK_PATH 2>&1"
+        )
+        if (result.isNotBlank()) {
+            FileLogger.w("ConfigChannel", "chcon output: $result")
+        } else {
+            FileLogger.i("ConfigChannel", "chcon shell_data_file OK")
+        }
     }
 
     private fun mapShm(): Boolean =
@@ -111,7 +157,7 @@ object ConfigChannel {
             spkBuffer = mapSingleShm(SHM_SPK_PATH, PARAM_SHM_SIZE)
             statusBuffer != null && hpBuffer != null && spkBuffer != null
         } catch (e: Exception) {
-            FileLogger.e("ConfigChannel", "mmap failed, will use su fallback", e)
+            FileLogger.e("ConfigChannel", "mmap failed, will retry after Shizuku create", e)
             false
         }
 
@@ -378,7 +424,7 @@ object ConfigChannel {
         try {
             val statusRegionSize = 128
             val process =
-                RootShell.exec(
+                ShizukuShell.exec(
                     "xxd -p -l $statusRegionSize -s $STATUS_DATA_OFFSET $SHM_STATUS_PATH",
                 )
             val hex =
@@ -458,14 +504,12 @@ object ConfigChannel {
         try {
             val legacyPath = "/data/local/tmp/v4a/params.bin"
             val tmpPath = "$legacyPath.tmp"
-            val su = RootShell.getSuPath()
-            val process = Runtime.getRuntime().exec(arrayOf(su, "-c", "cat > $tmpPath"))
-            process.outputStream.use { it.write(data) }
-            process.waitFor()
-
-            RootShell.exec("mv $tmpPath $legacyPath && chmod 666 $legacyPath")
+            // Use the piped write helper: open shell, write bytes to stdin,
+            // then atomically rename and chmod — same semantics as the old su pipe.
+            ShizukuShell.writeToFile(data, tmpPath)
+            ShizukuShell.exec("mv '$tmpPath' '$legacyPath' && chmod 666 '$legacyPath'")
         } catch (e: Exception) {
-            FileLogger.e("ConfigChannel", "Failed to write via su fallback", e)
+            FileLogger.e("ConfigChannel", "Failed to write via Shizuku fallback", e)
         }
     }
 

@@ -234,6 +234,15 @@
     <!-- Settings -->
     <string name="settings_auto_start">Auto-start on boot</string>
     <string name="settings_aidl_mode">AIDL mode</string>
+    <string name="settings_shizuku_status">Shizuku</string>
+
+    <!-- Capture mode -->
+    <string name="capture_notification_title">ViPER4Android — Capture Mode</string>
+    <string name="capture_notification_text">Processing audio with ViPER effects</string>
+    <string name="capture_mode_label">Capture mode</string>
+    <string name="capture_mode_desc">Process all media audio through ViPER effects (no root needed)</string>
+    <string name="capture_start">Start capture</string>
+    <string name="capture_stop">Stop capture</string>
     <string name="settings_global_mode">Global mode</string>
     <string name="settings_driver_version">Driver version</string>
     <string name="settings_driver_arch">Driver architecture</string>

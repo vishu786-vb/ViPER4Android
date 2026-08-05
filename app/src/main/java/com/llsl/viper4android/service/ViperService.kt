@@ -30,7 +30,8 @@ import com.llsl.viper4android.ui.screens.main.MainViewModel
 import com.llsl.viper4android.ui.screens.main.deserializeEffectPrefs
 import com.llsl.viper4android.ui.screens.main.serializeEffectPrefs
 import com.llsl.viper4android.utils.FileLogger
-import com.llsl.viper4android.utils.RootShell
+import com.llsl.viper4android.utils.ShizukuShell
+import com.llsl.viper4android.capture.CaptureParamBridge
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -327,6 +328,7 @@ class ViperService : LifecycleService() {
         param: Int,
         value: Int,
     ) {
+        CaptureParamBridge.dispatchParam(param, value)
         if (useAidlTypeUuid) {
             FileLogger.d("Service", "AIDL shm param=0x${param.toString(16)} value=$value")
             ConfigChannel.writeParams(listOf(ParamEntry(param, intArrayOf(value))))
@@ -345,6 +347,7 @@ class ViperService : LifecycleService() {
         val2: Int,
         val3: Int,
     ) {
+        CaptureParamBridge.dispatchParam(param, val1, val2, val3)
         if (useAidlTypeUuid) {
             FileLogger.d(
                 "Service",
@@ -365,6 +368,8 @@ class ViperService : LifecycleService() {
         value: ByteArray,
         extraParams: List<ParamEntry>? = null,
     ) {
+        CaptureParamBridge.dispatchParamBytes(param, value)
+        extraParams?.let { CaptureParamBridge.dispatchParamsBatch(it) }
         if (useAidlTypeUuid) {
             FileLogger.d("Service", "AIDL shm param=0x${param.toString(16)} bytes=${value.size}")
             ConfigChannel.writeParamsByteArray(param, value, extraParams)
@@ -379,6 +384,7 @@ class ViperService : LifecycleService() {
 
     fun dispatchParamsBatch(entries: List<ParamEntry>) {
         if (entries.isEmpty()) return
+        CaptureParamBridge.dispatchParamsBatch(entries)
         if (useAidlTypeUuid) {
             FileLogger.d("Service", "AIDL shm batch: ${entries.size} params")
             ConfigChannel.writeParams(entries)
@@ -429,6 +435,7 @@ class ViperService : LifecycleService() {
         bandCountParam: Int = 0,
         bandCount: Int = 0,
     ) {
+        CaptureParamBridge.dispatchEqBands(param, bandsString, bandCountParam, bandCount)
         if (useAidlTypeUuid) {
             FileLogger.d(
                 "Service",
@@ -464,6 +471,7 @@ class ViperService : LifecycleService() {
         masterEnabled: Boolean,
         byteArrayParams: List<ByteArrayParam>? = null,
     ) {
+        CaptureParamBridge.dispatchFullState(state, masterEnabled)
         if (useAidlTypeUuid) {
             FileLogger.d(
                 "Service",
@@ -593,7 +601,7 @@ class ViperService : LifecycleService() {
             val safeName = fileName.replace("'", "")
             val subDir = if (fxType == ViperParams.FX_TYPE_SPEAKER) "spk" else "hp"
             val kernelPath = "/data/local/tmp/v4a/$subDir/$safeName"
-            RootShell.copyFile(file, kernelPath)
+            ShizukuShell.copyFile(file, kernelPath)
             val param =
                 if (fxType == ViperParams.FX_TYPE_SPEAKER) {
                     ViperParams.PARAM_SPK_CONVOLVER_SET_KERNEL

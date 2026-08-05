@@ -21,6 +21,8 @@ import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.LibraryMusic
+import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.MicOff
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Speaker
 import androidx.compose.material.icons.filled.SpeakerGroup
@@ -56,6 +58,7 @@ import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.llsl.viper4android.R
 import com.llsl.viper4android.audio.ViperParams
+import com.llsl.viper4android.capture.ViperCaptureService
 import com.llsl.viper4android.ui.screens.debug.DebugLogDialog
 import com.llsl.viper4android.ui.screens.device.DeviceDialog
 import com.llsl.viper4android.ui.screens.preset.PresetDialog
@@ -65,7 +68,11 @@ import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MainScreen(viewModel: MainViewModel = hiltViewModel()) {
+fun MainScreen(
+    viewModel: MainViewModel = hiltViewModel(),
+    onStartCapture: () -> Unit = {},
+    onStopCapture: () -> Unit = {},
+) {
     LifecycleEventEffect(Lifecycle.Event.ON_STOP) {
         viewModel.saveSettingsOnBackground()
     }
@@ -85,6 +92,15 @@ fun MainScreen(viewModel: MainViewModel = hiltViewModel()) {
     var showDebugLog by remember { mutableStateOf(false) }
     var showDeviceDialog by remember { mutableStateOf(false) }
     var debugLogClearTime by remember { mutableLongStateOf(0L) }
+    // Track capture service state — read from the static companion flag
+    var isCapturing by remember { mutableStateOf(ViperCaptureService.isCapturing) }
+    // Refresh every second so the button reflects actual service state
+    LaunchedEffect(Unit) {
+        while (true) {
+            isCapturing = ViperCaptureService.isCapturing
+            delay(1000)
+        }
+    }
 
     val context = LocalContext.current
     val appVersionName =
@@ -292,6 +308,26 @@ fun MainScreen(viewModel: MainViewModel = hiltViewModel()) {
                         Icon(
                             Icons.Default.Settings,
                             contentDescription = stringResource(R.string.menu_settings),
+                        )
+                    }
+                    // Capture mode toggle — Shizuku-based, no root needed
+                    IconButton(
+                        onClick = {
+                            if (isCapturing) {
+                                onStopCapture()
+                                isCapturing = false
+                            } else {
+                                onStartCapture()
+                            }
+                        }
+                    ) {
+                        Icon(
+                            imageVector = if (isCapturing) Icons.Default.MicOff else Icons.Default.Mic,
+                            contentDescription = stringResource(
+                                if (isCapturing) R.string.capture_stop else R.string.capture_start
+                            ),
+                            tint = if (isCapturing) MaterialTheme.colorScheme.error
+                                   else MaterialTheme.colorScheme.onPrimaryContainer,
                         )
                     }
                 },

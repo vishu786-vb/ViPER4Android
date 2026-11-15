@@ -10,6 +10,8 @@ import com.llsl.viper4android.ui.screens.main.MainScreen
 fun ViperNavigation(
     onStartCapture: () -> Unit = {},
     onStopCapture: () -> Unit = {},
+    onStartShizukuCapture: () -> Unit = {},
+    onStopShizukuCapture: () -> Unit = {},
 ) {
     val navController = rememberNavController()
 
@@ -19,8 +21,10 @@ fun ViperNavigation(
     ) {
         composable("main") {
             MainScreen(
-                onStartCapture = onStartCapture,
-                onStopCapture  = onStopCapture,
+                onStartCapture        = onStartCapture,
+                onStopCapture         = onStopCapture,
+                onStartShizukuCapture = onStartShizukuCapture,
+                onStopShizukuCapture  = onStopShizukuCapture,
             )
         }
     }

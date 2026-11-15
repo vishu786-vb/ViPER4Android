@@ -468,6 +468,8 @@ object EffectDispatcher {
             "Dispatch",
             "Dispatch: fullState mode=$mode master=${if (masterEnabled) "ON" else "OFF"}",
         )
+        // Buffer size is a global param (not per-mode)
+        effect.setParameter(ViperParams.PARAM_BUFFER_SIZE, state.bufferSize)
         if (state.fxType == ViperParams.FX_TYPE_HEADPHONE) {
             dispatchHeadphoneState(effect, state)
         } else {

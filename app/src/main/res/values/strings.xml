@@ -239,6 +239,10 @@
     <!-- Capture mode -->
     <string name="capture_notification_title">ViPER4Android — Capture Mode</string>
     <string name="capture_notification_text">Processing audio with ViPER effects</string>
+    <string name="capture_shizuku_notification_text">Processing audio via Shizuku loopback (no screen capture)</string>
+    <string name="capture_shizuku_label">Shizuku capture</string>
+    <string name="capture_shizuku_desc">System-wide loopback via Shizuku — no consent dialog, no double audio</string>
+    <string name="capture_shizuku_unavailable">Shizuku is not running or permission not granted</string>
     <string name="capture_mode_label">Capture mode</string>
     <string name="capture_mode_desc">Process all media audio through ViPER effects (no root needed)</string>
     <string name="capture_start">Start capture</string>
@@ -247,6 +251,7 @@
     <string name="settings_driver_version">Driver version</string>
     <string name="settings_driver_arch">Driver architecture</string>
     <string name="settings_app_version">App version</string>
+    <string name="settings_buffer_size">Buffer size</string>
     <string name="settings_files_section">Files</string>
     <string name="settings_import_preset">Import Preset</string>
     <string name="settings_import_kernel">Import Kernel</string>

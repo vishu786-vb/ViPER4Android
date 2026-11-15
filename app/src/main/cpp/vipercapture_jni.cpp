@@ -505,3 +505,52 @@ Java_com_llsl_viper4android_capture_ViperCaptureEngine_nativeSetSampleRate(
 }
 
 } // extern "C"
+
+// ── LunarisDolby aliases ──────────────────────────────────────────────────────
+// DolbyCaptureEngine (org.lunaris.dolby.audio) uses the same libvipercapture.so
+// but the JVM looks up symbols by the calling class's package name.
+// These thin wrappers forward to the existing V4A implementations so there is
+// no code duplication and no separate native library needed.
+
+extern "C" {
+
+JNIEXPORT void JNICALL
+Java_org_lunaris_dolby_audio_DolbyCaptureEngine_nativeCreate(
+        JNIEnv *env, jobject obj, jint sampleRate) {
+    Java_com_llsl_viper4android_capture_ViperCaptureEngine_nativeCreate(env, obj, sampleRate);
+}
+
+JNIEXPORT void JNICALL
+Java_org_lunaris_dolby_audio_DolbyCaptureEngine_nativeRelease(
+        JNIEnv *env, jobject obj) {
+    Java_com_llsl_viper4android_capture_ViperCaptureEngine_nativeRelease(env, obj);
+}
+
+JNIEXPORT void JNICALL
+Java_org_lunaris_dolby_audio_DolbyCaptureEngine_nativeProcess(
+        JNIEnv *env, jobject obj,
+        jfloatArray input, jfloatArray output, jint frameCount) {
+    Java_com_llsl_viper4android_capture_ViperCaptureEngine_nativeProcess(env, obj, input, output, frameCount);
+}
+
+JNIEXPORT void JNICALL
+Java_org_lunaris_dolby_audio_DolbyCaptureEngine_nativeSetParam(
+        JNIEnv *env, jobject obj,
+        jint param, jint val1, jint val2, jint val3) {
+    Java_com_llsl_viper4android_capture_ViperCaptureEngine_nativeSetParam(env, obj, param, val1, val2, val3);
+}
+
+JNIEXPORT void JNICALL
+Java_org_lunaris_dolby_audio_DolbyCaptureEngine_nativeSetParamBytes(
+        JNIEnv *env, jobject obj,
+        jint param, jbyteArray data) {
+    Java_com_llsl_viper4android_capture_ViperCaptureEngine_nativeSetParamBytes(env, obj, param, data);
+}
+
+JNIEXPORT void JNICALL
+Java_org_lunaris_dolby_audio_DolbyCaptureEngine_nativeSetSampleRate(
+        JNIEnv *env, jobject obj, jint sampleRate) {
+    Java_com_llsl_viper4android_capture_ViperCaptureEngine_nativeSetSampleRate(env, obj, sampleRate);
+}
+
+} // extern "C" (LunarisDolby aliases)

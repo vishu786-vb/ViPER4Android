@@ -23,7 +23,7 @@ android {
         minSdk = 28
         targetSdk = 36
         versionCode = 1
-        versionName = "1.5.5"
+        versionName = "1.0.0"
     }
 
     androidResources {
@@ -81,6 +81,7 @@ android {
 
     buildFeatures {
         compose = true
+        aidl = true
     }
 
     defaultConfig {

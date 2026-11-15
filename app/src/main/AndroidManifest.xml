@@ -10,16 +10,12 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
-    <!-- Shizuku API permission -->
-    <uses-permission android:name="moe.shizuku.manager.permission.API_V23" />
     <!-- Required for AudioRecord / MediaProjection capture -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
 
-    <!-- Declare that this app queries the Shizuku package -->
-    <queries>
-        <package android:name="moe.shizuku.privileged.api" />
-    </queries>
+    <!-- Shizuku: interact with the Shizuku server process -->
+    <uses-permission android:name="android.permission.INTERACT_ACROSS_USERS_FULL" />
 
     <application
         android:name=".ViPER4AndroidApp"
@@ -29,15 +25,6 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.ViPER4Android"
         tools:targetApi="33">
-
-        <!-- Shizuku provider — required for the Shizuku API to bind -->
-        <provider
-            android:name="rikka.shizuku.ShizukuProvider"
-            android:authorities="${applicationId}.shizuku"
-            android:exported="true"
-            android:multiprocess="false"
-            android:enabled="true"
-            android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
 
         <activity
             android:name=".ui.MainActivity"
@@ -78,6 +65,30 @@
             android:exported="false"
             android:stopWithTask="false"
             android:foregroundServiceType="mediaProjection" />
+
+        <!-- Shizuku loopback capture — no screen-capture dialog, no double audio -->
+        <service
+            android:name=".capture.ViperShizukuCaptureService"
+            android:exported="false"
+            android:stopWithTask="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="audio_loopback_capture" />
+        </service>
+
+        <!--
+            ShizukuProvider: required for Shizuku to discover this app.
+            The provider authority must be ${applicationId}.shizuku.
+            android:permission guards it so only the Shizuku server can bind.
+        -->
+        <provider
+            android:name="rikka.shizuku.ShizukuProvider"
+            android:authorities="${applicationId}.shizuku"
+            android:multiprocess="false"
+            android:enabled="true"
+            android:exported="true"
+            android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
 
     </application>
 </manifest>

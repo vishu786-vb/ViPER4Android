@@ -9,7 +9,6 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
-import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.media.AudioAttributes
 import android.media.AudioFormat
@@ -17,56 +16,39 @@ import android.media.AudioManager
 import android.media.AudioPlaybackCaptureConfiguration
 import android.media.AudioRecord
 import android.media.AudioTrack
-import android.media.audiofx.DynamicsProcessing
 import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
-import android.os.Handler
 import android.os.IBinder
-import android.os.Looper
-import android.os.ParcelFileDescriptor
 import android.os.Process
 import androidx.annotation.RequiresPermission
 import androidx.core.app.NotificationCompat
 import com.llsl.viper4android.R
 import com.llsl.viper4android.audio.EffectDispatcher
-import com.llsl.viper4android.audio.ViperParams
 import com.llsl.viper4android.data.repository.ViperRepository
 import com.llsl.viper4android.utils.FileLogger
-import com.llsl.viper4android.utils.ShizukuShell
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
-import rikka.shizuku.Shizuku
-import rikka.shizuku.SystemServiceHelper
-import java.io.FileInputStream
-import java.io.InputStreamReader
-import java.util.concurrent.ConcurrentHashMap
-import java.util.regex.Pattern
 import javax.inject.Inject
 
 /**
- * ViperCaptureService — the root-free alternative to the AIDL driver module.
+ * ViperCaptureService — standard MediaProjection capture mode.
  *
- * Architecture (mirrors Wecho's AudioCaptureService):
+ * Architecture:
  *
  *   MediaProjection (screen-capture API)
- *       ↓  AudioPlaybackCaptureConfiguration
+ *       |  AudioPlaybackCaptureConfiguration
  *   AudioRecord  reads raw PCM from other apps' audio
- *       ↓  FloatArray frames
+ *       |  FloatArray frames
  *   ViperCaptureEngine.process()  — full ViPERDSP effect chain in native code
- *       ↓  processed FloatArray
+ *       |  processed FloatArray
  *   AudioTrack  plays back processed audio
- *       +
- *   Shizuku MuteEffectFactory  — silences original app sessions via
- *       DynamicsProcessing(-144 dB) so there's no doubled audio.
  *
- * Shizuku is used for:
- *   1. Granting DUMP + PROJECT_MEDIA app-ops so MediaProjection works
- *      without the screen-capture consent dialog on every start.
- *   2. Dumping audio_policy to discover other apps' sessions for muting.
+ * Note: The original audio from other apps still plays simultaneously.
+ * The user hears both the original and processed audio.
  */
 @AndroidEntryPoint
 class ViperCaptureService : Service() {
@@ -91,21 +73,13 @@ class ViperCaptureService : Service() {
 
         @Volatile var processingLatencyMs = 0.0
             private set
-
-        private val SESSION_REGEX = Regex(
-            """Session Id:\s*(\d+)\s+UID:\s*(\d+)[\S\s]*?Attributes:[\S\s]*?Content type:\s*(\w+)\s*Usage:\s*(\w+)"""
-        )
-        private val SESSION_REGEX_33 = Regex(
-            """Session ID:\s*(\d+);\s*uid\s*(\d+);[\S\s]*?Attributes:[\S\s]*?Content type:\s*(\w+)\s*Usage:\s*(\w+)"""
-        )
     }
 
-    // ── state ────────────────────────────────────────────────────────────────
+    // -- state --
 
-    private val engine      = ViperCaptureEngine()
-    private val scope       = CoroutineScope(Dispatchers.IO + SupervisorJob())
-    private val muteEffects = ConcurrentHashMap<Int, DynamicsProcessing>()
-    private val mainHandler = Handler(Looper.getMainLooper())
+    private val engine = ViperCaptureEngine()
+    private val scope  = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private val surroundWidener = SurroundWidener()
 
     private var mediaProjectionManager: MediaProjectionManager? = null
     private var mediaProjection: MediaProjection? = null
@@ -113,24 +87,19 @@ class ViperCaptureService : Service() {
     private var audioTrack: AudioTrack? = null
     private var processThread: Thread? = null
 
-    private var audioManager: AudioManager? = null
-    private var playbackCallback: AudioManager.AudioPlaybackCallback? = null
-
     private var headsetReceiverRegistered = false
     private val headsetReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             FileLogger.d(TAG, "Headset event: ${intent.action}")
-            // AudioTrack handles rerouting automatically — no action needed.
         }
     }
 
-    // ── lifecycle ────────────────────────────────────────────────────────────
+    // -- lifecycle --
 
     override fun onCreate() {
         super.onCreate()
         mediaProjectionManager =
             getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-        audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -168,22 +137,15 @@ class ViperCaptureService : Service() {
         super.onDestroy()
     }
 
-    // ── capture pipeline ─────────────────────────────────────────────────────
+    // -- capture pipeline --
 
     @RequiresPermission(Manifest.permission.RECORD_AUDIO)
     private suspend fun startCapture() {
         isCapturing = true
 
-        // Grant the DUMP + PROJECT_MEDIA app-ops via Shizuku so that future
-        // MediaProjection starts don't require a consent dialog each time.
-        if (ShizukuShell.isAvailable()) {
-            grantAppOpsViaShizuku()
-        }
-
         // Build the AudioRecord with MediaProjection capture config
         val captureConfig = AudioPlaybackCaptureConfiguration.Builder(mediaProjection!!)
             .addMatchingUsage(AudioAttributes.USAGE_MEDIA)
-            .addMatchingUsage(AudioAttributes.USAGE_GAME)
             .excludeUid(Process.myUid())
             .build()
 
@@ -249,14 +211,17 @@ class ViperCaptureService : Service() {
         audioRecord?.startRecording()
         audioTrack?.play()
 
+        // Attach surround widener to the AudioTrack's session.
+        // DynamicsProcessing applies per-channel EQ on the output in real-time.
+        val trackSessionId = audioTrack?.audioSessionId ?: 0
+        if (trackSessionId != 0) {
+            surroundWidener.attach(trackSessionId)
+            surroundWidener.setIntensity(getSurroundIntensityFromPrefs())
+            surroundWidener.enabled = getSurroundEnabledFromPrefs()
+        }
+
         // Register engine in the bridge so ViperService forwards live param changes
         CaptureParamBridge.setEngine(engine)
-
-        // Kick off the mute loop (Shizuku required)
-        if (ShizukuShell.isAvailable()) {
-            registerPlaybackCallbackForMute()
-            muteOtherSessionsNow()
-        }
 
         // Processing loop
         val samplesPerChunk = CHUNK_FRAMES * 2   // stereo interleaved
@@ -290,18 +255,13 @@ class ViperCaptureService : Service() {
     private fun stopCapture() {
         isCapturing = false
 
-        // Unregister from bridge first so no more params are forwarded
         CaptureParamBridge.setEngine(null)
+        surroundWidener.release()
 
         if (headsetReceiverRegistered) {
             unregisterReceiver(headsetReceiver)
             headsetReceiverRegistered = false
         }
-
-        playbackCallback?.let { audioManager?.unregisterAudioPlaybackCallback(it) }
-        playbackCallback = null
-
-        releaseAllMuteEffects()
 
         processThread?.interrupt()
         processThread = null
@@ -319,13 +279,8 @@ class ViperCaptureService : Service() {
         FileLogger.i(TAG, "Capture stopped")
     }
 
-    // ── effect state ─────────────────────────────────────────────────────────
+    // -- effect state --
 
-    /**
-     * Load the full current effect state from DataStore and push it to the JNI engine.
-     * Uses ViperEffectAdapter so we can call EffectDispatcher.dispatchFullState() directly —
-     * no duplication of the param-collection logic that already lives in EffectDispatcher.
-     */
     private suspend fun applyCurrentEffectState() {
         try {
             val state = EffectDispatcher.loadFullStateFromPrefs(repository)
@@ -341,138 +296,41 @@ class ViperCaptureService : Service() {
         }
     }
 
-    // ── Shizuku mute ─────────────────────────────────────────────────────────
+    // -- surround widener control --
 
-    /**
-     * Grant DUMP + PROJECT_MEDIA app-ops to ourselves so that:
-     *  - We can dump audio_policy to discover sessions for muting.
-     *  - MediaProjection doesn't show the consent dialog on every cold start
-     *    (PROJECT_MEDIA app-op, same as what Wecho's ShizukuHelpMe does).
-     */
-    private fun grantAppOpsViaShizuku() {
-        try {
-            val pkg = packageName
-            // Fire-and-forget — don't wait for process exit.
-            // ShizukuRemoteProcess doesn't signal termination cleanly for pm/appops
-            // commands, so any waitFor() call always times out and throws
-            // IllegalArgumentException("process hasn't exited"), producing noise
-            // in the debug log even though the grant succeeded.
-            ShizukuShell.fireAndForget("pm grant $pkg android.permission.DUMP 2>/dev/null || true")
-            ShizukuShell.fireAndForget("appops set $pkg PROJECT_MEDIA allow 2>/dev/null || true")
-            FileLogger.i(TAG, "Shizuku app-ops granted")
-        } catch (e: Exception) {
-            FileLogger.w(TAG, "grantAppOpsViaShizuku: ${e.message}")
-        }
+    private fun getSurroundEnabledFromPrefs(): Boolean {
+        val prefs = getSharedPreferences("viper_capture_prefs", Context.MODE_PRIVATE)
+        return prefs.getBoolean("surround_enabled", false)
     }
 
-    /** Register AudioPlaybackCallback so we re-mute whenever new sessions appear. */
-    private fun registerPlaybackCallbackForMute() {
-        val cb = object : AudioManager.AudioPlaybackCallback() {
-            override fun onPlaybackConfigChanged(
-                configs: MutableList<android.media.AudioPlaybackConfiguration>
-            ) { muteOtherSessionsNow() }
-        }
-        audioManager?.registerAudioPlaybackCallback(cb, mainHandler)
-        playbackCallback = cb
-    }
-
-    private fun muteOtherSessionsNow() {
-        scope.launch {
-            val sessions = dumpAudioSessions() ?: return@launch
-            muteExternalSessions(sessions)
-        }
+    private fun getSurroundIntensityFromPrefs(): Float {
+        val prefs = getSharedPreferences("viper_capture_prefs", Context.MODE_PRIVATE)
+        return prefs.getFloat("surround_intensity", 0.5f)
     }
 
     /**
-     * Dump media.audio_policy via IBinder.dumpAsync(), exactly like
-     * Wecho's MuteEffectFactory.dumpAudioSessionsViaShizuku().
+     * Enable or disable the surround widening effect at runtime.
+     * Call from UI via a bound service or broadcast.
      */
-    private fun dumpAudioSessions(): List<SessionInfo>? {
-        return try {
-            val pipe = ParcelFileDescriptor.createPipe()
-            val binder = SystemServiceHelper.getSystemService("media.audio_policy")
-                ?: SystemServiceHelper.getSystemService("audio")
-                ?: return null
-            binder.dumpAsync(pipe[1].fileDescriptor, emptyArray())
-            pipe[1].close()
-            val text = FileInputStream(pipe[0].fileDescriptor).use { fis ->
-                InputStreamReader(fis, Charsets.UTF_8).readText()
-            }
-            pipe[0].close()
-            parseSessions(text)
-        } catch (e: Exception) {
-            FileLogger.e(TAG, "dumpAudioSessions failed", e)
-            null
-        }
-    }
-
-    private data class SessionInfo(
-        val sessionId: Int, val uid: Int, val usage: String, val pkgName: String
-    )
-
-    private fun parseSessions(text: String): List<SessionInfo> {
-        val results = mutableListOf<SessionInfo>()
-        val matches = SESSION_REGEX.findAll(text).toList()
-            .ifEmpty { SESSION_REGEX_33.findAll(text).toList() }
-        for (m in matches) {
-            val sid = m.groupValues[1].toIntOrNull() ?: continue
-            val uid = m.groupValues[2].toIntOrNull() ?: continue
-            val content = m.groupValues[3]
-            val usage = m.groupValues[4]
-            val pkg = try {
-                packageManager.getPackagesForUid(uid)?.firstOrNull() ?: "unknown"
-            } catch (_: Exception) { "unknown" }
-            results.add(SessionInfo(sid, uid, usage, pkg))
-        }
-        return results
+    fun setSurroundEnabled(enabled: Boolean) {
+        val prefs = getSharedPreferences("viper_capture_prefs", Context.MODE_PRIVATE)
+        prefs.edit().putBoolean("surround_enabled", enabled).apply()
+        surroundWidener.enabled = enabled
+        FileLogger.i(TAG, "Surround widener enabled=$enabled")
     }
 
     /**
-     * Apply -144 dB DynamicsProcessing to every external session playing MEDIA/GAME audio.
-     * Skip our own sessions so we don't mute the processed AudioTrack output.
+     * Update the surround widening intensity at runtime.
+     * @param intensity 0.0 (off) to 1.0 (maximum stereo separation)
      */
-    private fun muteExternalSessions(sessions: List<SessionInfo>) {
-        val ownSessions = buildSet<Int> {
-            audioRecord?.audioSessionId?.let { if (it != 0) add(it) }
-            audioTrack?.audioSessionId?.let { if (it != 0) add(it) }
-        }
-
-        val currentIds = sessions.map { it.sessionId }.toSet()
-
-        // Release effects for sessions that ended
-        val gone = muteEffects.keys.filter { it !in currentIds }
-        gone.forEach { sid ->
-            muteEffects.remove(sid)?.runCatching { release() }
-        }
-
-        for (s in sessions) {
-            if (s.sessionId in ownSessions) continue
-            if (s.pkgName == packageName) continue
-            if (muteEffects.containsKey(s.sessionId)) continue
-
-            val usage = s.usage.uppercase()
-            if (!usage.contains("USAGE_MEDIA") &&
-                !usage.contains("USAGE_GAME") &&
-                !usage.contains("USAGE_UNKNOWN")) continue
-
-            try {
-                val fx = DynamicsProcessing(Int.MAX_VALUE, s.sessionId, null)
-                fx.setInputGainAllChannelsTo(-144f)
-                fx.enabled = true
-                muteEffects[s.sessionId] = fx
-                FileLogger.d(TAG, "Muted session ${s.sessionId} (${s.pkgName})")
-            } catch (e: Exception) {
-                FileLogger.w(TAG, "Could not mute session ${s.sessionId}: ${e.message}")
-            }
-        }
+    fun setSurroundIntensity(intensity: Float) {
+        val prefs = getSharedPreferences("viper_capture_prefs", Context.MODE_PRIVATE)
+        prefs.edit().putFloat("surround_intensity", intensity).apply()
+        surroundWidener.setIntensity(intensity)
+        FileLogger.i(TAG, "Surround intensity=$intensity")
     }
 
-    private fun releaseAllMuteEffects() {
-        muteEffects.values.forEach { runCatching { it.release() } }
-        muteEffects.clear()
-    }
-
-    // ── notification ─────────────────────────────────────────────────────────
+    // -- notification --
 
     private fun startForegroundNotification() {
         val channelId = "viper_capture"
@@ -486,8 +344,8 @@ class ViperCaptureService : Service() {
         val notification: Notification = NotificationCompat.Builder(this, channelId)
             .setContentTitle(getString(R.string.capture_notification_title))
             .setContentText(getString(R.string.capture_notification_text))
-            .setSmallIcon(R.drawable.ic_notification)
             .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setSmallIcon(R.drawable.ic_notification)
             .setOngoing(true)
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .build()

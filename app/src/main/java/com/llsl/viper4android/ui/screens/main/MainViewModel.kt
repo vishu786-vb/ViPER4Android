@@ -92,6 +92,7 @@ data class MainUiState(
     val speakerCorrection: SpeakerCorrectionState = SpeakerCorrectionState(),
     val activeDeviceName: String = "",
     val activeDeviceId: String = "",
+    val bufferSize: Int = 4096,
 )
 
 @HiltViewModel
@@ -105,6 +106,7 @@ class MainViewModel
             const val PREF_AUTO_START = "auto_start"
             const val PREF_GLOBAL_MODE = "global_mode"
             const val PREF_DEBUG_MODE = "debug_mode"
+            const val PREF_BUFFER_SIZE = "buffer_size"
             private const val NOTIFY_ID_PRESET_IMPORT = 2
             private const val NOTIFY_ID_PRESET_CLEAR = 3
             private const val NOTIFY_ID_KERNEL_IMPORT = 4
@@ -147,6 +149,9 @@ class MainViewModel
 
         private val _debugModeEnabled = MutableStateFlow(false)
         val debugModeEnabled: StateFlow<Boolean> = _debugModeEnabled.asStateFlow()
+
+        private val _bufferSize = MutableStateFlow(4096)
+        val bufferSize: StateFlow<Int> = _bufferSize.asStateFlow()
 
         private var viperService: ViperService? = null
         private var serviceBound = false
@@ -4878,6 +4883,12 @@ class MainViewModel
                     _debugModeEnabled.value = v
                 }
             }
+            viewModelScope.launch {
+                repository.getIntPreference(PREF_BUFFER_SIZE, 4096).collect { v ->
+                    _bufferSize.value = v
+                    _uiState.update { it.copy(bufferSize = v) }
+                }
+            }
         }
 
         fun enableDebugMode() {
@@ -5199,6 +5210,15 @@ class MainViewModel
             viewModelScope.launch {
                 repository.setBooleanPreference(PREF_AUTO_START, enabled)
             }
+        }
+
+        fun setBufferSize(size: Int) {
+            _bufferSize.value = size
+            _uiState.update { it.copy(bufferSize = size) }
+            viewModelScope.launch {
+                repository.setIntPreference(PREF_BUFFER_SIZE, size)
+            }
+            dispatchInt(ViperParams.PARAM_BUFFER_SIZE, size)
         }
 
         fun toggleGlobalMode(enabled: Boolean) {

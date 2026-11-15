@@ -1,8 +1,6 @@
 package com.llsl.viper4android.ui.screens.settings
 
-import android.widget.Toast
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -13,21 +11,21 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.llsl.viper4android.R
 import com.llsl.viper4android.ui.screens.main.DriverStatus
 import com.llsl.viper4android.utils.ShizukuShell
+import kotlin.math.roundToInt
 
 @Composable
 fun SettingsDialog(
@@ -36,18 +34,15 @@ fun SettingsDialog(
     aidlModeActive: Boolean,
     driverStatus: DriverStatus,
     appVersionName: String,
+    bufferSize: Int,
     onAutoStartChanged: (Boolean) -> Unit,
     onGlobalModeChanged: (Boolean) -> Unit,
+    onBufferSizeChanged: (Int) -> Unit,
     onImportPreset: () -> Unit,
     onImportKernel: () -> Unit,
-    onDebugUnlocked: () -> Unit,
     onImportVdc: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val context = LocalContext.current
-    val tapCount = remember { mutableIntStateOf(0) }
-    val debugModeEnabledStr = stringResource(R.string.debug_mode_enabled)
-
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.menu_settings)) },
@@ -63,6 +58,12 @@ fun SettingsDialog(
                     label = stringResource(R.string.settings_global_mode),
                     checked = globalModeEnabled,
                     onCheckedChange = onGlobalModeChanged,
+                )
+                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                // Buffer size slider
+                BufferSizeSlider(
+                    bufferSize = bufferSize,
+                    onBufferSizeChanged = onBufferSizeChanged,
                 )
                 HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
                 Text(
@@ -99,42 +100,7 @@ fun SettingsDialog(
                     Text(stringResource(R.string.settings_import_vdc))
                 }
                 HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-                Row(
-                    modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .clickable {
-                                tapCount.intValue++
-                                if (tapCount.intValue >= 7) {
-                                    tapCount.intValue = 0
-                                    onDebugUnlocked()
-                                    Toast
-                                        .makeText(
-                                            context,
-                                            debugModeEnabledStr,
-                                            Toast.LENGTH_SHORT,
-                                        ).show()
-                                }
-                            }.padding(vertical = 4.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    Text(
-                        text = stringResource(R.string.settings_driver_version),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Text(
-                        text = if (driverStatus.installed) driverStatus.versionName else "-",
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                }
-                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-                SettingsInfoRow(
-                    label = stringResource(R.string.settings_driver_arch),
-                    value = if (driverStatus.installed) driverStatus.architecture else "-",
-                )
                 if (aidlModeActive) {
-                    HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
                     Row(
                         modifier =
                             Modifier
@@ -233,6 +199,49 @@ private fun SettingsInfoRow(
         Text(
             text = value,
             style = MaterialTheme.typography.bodyMedium,
+        )
+    }
+}
+
+@Composable
+private fun BufferSizeSlider(
+    bufferSize: Int,
+    onBufferSizeChanged: (Int) -> Unit,
+) {
+    // Powers of 2 from 128 to 16384
+    val bufferSizes = listOf(128, 256, 512, 1024, 2048, 4096, 8192, 16384)
+    val currentIndex = bufferSizes.indexOf(bufferSize).coerceAtLeast(0)
+
+    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Text(
+                text = stringResource(R.string.settings_buffer_size),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Text(
+                text = "$bufferSize samples",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Slider(
+            value = currentIndex.toFloat(),
+            onValueChange = { index ->
+                val i = index.roundToInt().coerceIn(0, bufferSizes.lastIndex)
+                onBufferSizeChanged(bufferSizes[i])
+            },
+            valueRange = 0f..(bufferSizes.size - 1).toFloat(),
+            steps = bufferSizes.size - 2,
+            modifier = Modifier.fillMaxWidth(),
+            colors = SliderDefaults.colors(
+                activeTickColor = Color.Transparent,
+                inactiveTickColor = Color.Transparent,
+            ),
         )
     }
 }

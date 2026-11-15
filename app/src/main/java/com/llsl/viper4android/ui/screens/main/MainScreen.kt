@@ -72,6 +72,8 @@ fun MainScreen(
     viewModel: MainViewModel = hiltViewModel(),
     onStartCapture: () -> Unit = {},
     onStopCapture: () -> Unit = {},
+    onStartShizukuCapture: () -> Unit = {},
+    onStopShizukuCapture: () -> Unit = {},
 ) {
     LifecycleEventEffect(Lifecycle.Event.ON_STOP) {
         viewModel.saveSettingsOnBackground()
@@ -85,19 +87,24 @@ fun MainScreen(
     val globalMode by viewModel.globalModeEnabled.collectAsStateWithLifecycle()
     val aidlMode by viewModel.aidlModeEnabled.collectAsStateWithLifecycle()
     val debugMode by viewModel.debugModeEnabled.collectAsStateWithLifecycle()
+    val bufferSize by viewModel.bufferSize.collectAsStateWithLifecycle()
 
     var showPresetDialog by remember { mutableStateOf(false) }
-    var showDriverStatusDialog by remember { mutableStateOf(false) }
     var showSettingsDialog by remember { mutableStateOf(false) }
     var showDebugLog by remember { mutableStateOf(false) }
     var showDeviceDialog by remember { mutableStateOf(false) }
     var debugLogClearTime by remember { mutableLongStateOf(0L) }
     // Track capture service state — read from the static companion flag
     var isCapturing by remember { mutableStateOf(ViperCaptureService.isCapturing) }
-    // Refresh every second so the button reflects actual service state
+    var isShizukuCapturing by remember { mutableStateOf(
+        com.llsl.viper4android.capture.ViperShizukuCaptureService.isCapturing
+    ) }
+    // Refresh every second so buttons reflect actual service state
     LaunchedEffect(Unit) {
         while (true) {
             isCapturing = ViperCaptureService.isCapturing
+            isShizukuCapturing =
+                com.llsl.viper4android.capture.ViperShizukuCaptureService.isCapturing
             delay(1000)
         }
     }
@@ -158,19 +165,6 @@ fun MainScreen(
                 }
             },
             // V2_EXPORT_REMOVE_BEFORE_MERGE END
-        )
-    }
-
-    if (showDriverStatusDialog) {
-        LaunchedEffect(Unit) {
-            while (true) {
-                viewModel.queryDriverStatus()
-                delay(500)
-            }
-        }
-        DriverStatusDialog(
-            driverStatus = driverStatus,
-            onDismiss = { showDriverStatusDialog = false },
         )
     }
 
@@ -248,7 +242,9 @@ fun MainScreen(
             onGlobalModeChanged = viewModel::toggleGlobalMode,
             driverStatus = driverStatus,
             appVersionName = appVersionName,
+            bufferSize = bufferSize,
             onAutoStartChanged = viewModel::toggleAutoStart,
+            onBufferSizeChanged = viewModel::setBufferSize,
             onImportPreset = { importPresetLauncher.launch(arrayOf("application/json", "text/xml", "application/xml", "*/*")) },
             onImportKernel = {
                 importKernelLauncher.launch(
@@ -259,7 +255,6 @@ fun MainScreen(
                     ),
                 )
             },
-            onDebugUnlocked = viewModel::enableDebugMode,
             onImportVdc = { importVdcLauncher.launch(arrayOf("*/*")) },
             onDismiss = { showSettingsDialog = false },
         )
@@ -292,12 +287,6 @@ fun MainScreen(
                             contentDescription = stringResource(R.string.menu_devices),
                         )
                     }
-                    IconButton(onClick = { showDriverStatusDialog = true }) {
-                        Icon(
-                            Icons.Default.Info,
-                            contentDescription = stringResource(R.string.menu_driver_status),
-                        )
-                    }
                     IconButton(onClick = { showPresetDialog = true }) {
                         Icon(
                             Icons.Default.LibraryMusic,
@@ -310,7 +299,7 @@ fun MainScreen(
                             contentDescription = stringResource(R.string.menu_settings),
                         )
                     }
-                    // Capture mode toggle — Shizuku-based, no root needed
+                    // MediaProjection capture toggle (shows screen-capture dialog)
                     IconButton(
                         onClick = {
                             if (isCapturing) {
@@ -328,6 +317,28 @@ fun MainScreen(
                             ),
                             tint = if (isCapturing) MaterialTheme.colorScheme.error
                                    else MaterialTheme.colorScheme.onPrimaryContainer,
+                        )
+                    }
+                    // Shizuku loopback capture toggle (no dialog, no double audio)
+                    IconButton(
+                        onClick = {
+                            if (isShizukuCapturing) {
+                                onStopShizukuCapture()
+                                isShizukuCapturing = false
+                            } else {
+                                onStartShizukuCapture()
+                            }
+                        }
+                    ) {
+                        Icon(
+                            imageVector = if (isShizukuCapturing)
+                                Icons.Default.MicOff else Icons.Default.SpeakerGroup,
+                            contentDescription = stringResource(
+                                if (isShizukuCapturing) R.string.capture_stop
+                                else R.string.capture_shizuku_label
+                            ),
+                            tint = if (isShizukuCapturing) MaterialTheme.colorScheme.error
+                                   else MaterialTheme.colorScheme.tertiary,
                         )
                     }
                 },

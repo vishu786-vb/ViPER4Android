@@ -304,4 +304,6 @@ object ViperParams {
 
     const val FX_TYPE_HEADPHONE = 1
     const val FX_TYPE_SPEAKER = 2
+
+    const val PARAM_BUFFER_SIZE = 0x10500
 }
